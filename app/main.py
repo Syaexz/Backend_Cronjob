@@ -13,6 +13,7 @@ from .schemas import TaskHistoryResponse
 from typing import List
 from sqlalchemy import func
 from .services.queue import get_queued_task_ids
+from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
 
@@ -40,6 +41,22 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # =========================
 # GET ALL TASK
@@ -97,7 +114,10 @@ def create_task(
         frequency=task_data.frequency,
         schedule=task_data.schedule,
         status=task_data.status,
-        telegram_notify=task_data.telegram_notify
+        telegram_notify=task_data.telegram_notify,
+        schedule_date=task_data.schedule_date,
+        repeat_days=",".join(task_data.repeat_days or []),
+        repeat_day_of_month=task_data.repeat_day_of_month,
     )
 
     db.add(task)
@@ -110,6 +130,7 @@ def create_task(
     }
 
 
+
 # =========================
 # UPDATE TASK
 # =========================
@@ -120,7 +141,6 @@ def update_task(
     task_data: TaskUpdate,
     db: Session = Depends(get_db)
 ):
-
     task = (
         db.query(Task)
         .filter(Task.id == task_id)
@@ -133,9 +153,12 @@ def update_task(
             detail="Task tidak ditemukan"
         )
 
-    update_data = task_data.model_dump(
-        exclude_unset=True
-    )
+    update_data = task_data.model_dump(exclude_unset=True)
+
+    # Simpan repeat_days sebagai teks dipisahkan koma
+    if "repeat_days" in update_data:
+        days = update_data["repeat_days"]
+        update_data["repeat_days"] = ",".join(days or [])
 
     for field, value in update_data.items():
         setattr(task, field, value)
@@ -147,6 +170,7 @@ def update_task(
         "message": "Task berhasil diperbarui",
         "data": task
     }
+
 
 
 # =========================

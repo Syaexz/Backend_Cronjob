@@ -1,10 +1,12 @@
 
 import asyncio
 from datetime import datetime
+
 from ..database import SessionLocal
 from ..models import Task, TaskHistory
 from .queue import task_queue
 from .worker_executor import execute_task
+from .telegram import send_telegram_message
 
 
 async def worker_loop():
@@ -25,7 +27,6 @@ async def worker_loop():
 
             started_at = datetime.now()
             result = await execute_task(task)
-
             finished_at = datetime.now()
 
             history = TaskHistory(
@@ -39,18 +40,32 @@ async def worker_loop():
                 error=result["error"],
             )
 
-            task.status = (
-                "ACTIVE" if result["status"] == "SUCCESS"
-                else "ACTIVE"
-            )
+            # Task Once tidak boleh dijalankan kembali.
+            if (task.frequency or "").lower() == "once":
+                task.status = "COMPLETED"
+            else:
+                task.status = "ACTIVE"
+
             task.last_run = finished_at
 
             db.add(history)
             db.commit()
 
-            print(
-                f"[WORKER] {task.name}: {result['status']}"
-            )
+            print(f"[WORKER] {task.name}: {result['status']}")
+
+            if task.telegram_notify:
+                message = (
+                    f"🤖 CronJob Scheduler\n\n"
+                    f"Task: {task.name}\n"
+                    f"Status: {result['status']}\n"
+                    f"Durasi: {result['duration']} detik\n"
+                    f"Output: {result['output'] or '-'}"
+                )
+
+                if result["error"]:
+                    message += f"\nError: {result['error']}"
+
+                await send_telegram_message(message)
 
         except Exception as error:
             db.rollback()
